@@ -26,7 +26,7 @@ This project helped me strengthen my skills in:
 ### Steps to Install
 1. **Clone the repository:**
    ```
-       git clone https://github.com/YOUR_USERNAME/ScriptScraperAI.git
+       git clone https://github.com/liamliban/ScriptScraperAI.git
        cd ScriptScraperAI
    ```
 
