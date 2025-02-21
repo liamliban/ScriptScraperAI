@@ -1,7 +1,16 @@
+import os
 import time
 
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize OpenAI API
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # NOTE: Pagination
@@ -19,7 +28,7 @@ def pagination():
         return 1
 
 
-# NOTE: Movie list 
+# NOTE: Movie list
 def movie_list(page_number):
     try:
         root = "https://subslikescript.com"
@@ -52,7 +61,7 @@ def fetch_all_movies(last_page):
     print(f"Fetching movies from {last_page} pages...")
 
     # Only fetch first 3 pages for testing to be faster
-    pages_to_fetch = min(last_page, 3)
+    pages_to_fetch = min(last_page, 10)
 
     for i in range(1, pages_to_fetch + 1):
         print(f"Fetching page {i}/{pages_to_fetch}...")
@@ -102,6 +111,7 @@ def movie_info(movie):
         )
 
 
+# NOTE: Search function
 def search_movies(titles, links, query):
     # returns sequential search result numbers
     results = []
@@ -111,9 +121,60 @@ def search_movies(titles, links, query):
     return [(i + 1, title, link) for i, (title, link) in enumerate(results)]
 
 
+# NOTE: OpenAI function
+def ask_openai(title, plot, transcript, user_question):
+    # Truncate transcript if too long (OpenAI has token limits)
+    max_transcript_length = 14000  # Adjust based on your OpenAI model
+    if len(transcript) > max_transcript_length:
+        truncated_transcript = transcript[:max_transcript_length] + "...[truncated]"
+    else:
+        truncated_transcript = transcript
+
+    try:
+        print("Thinking...")
+
+        # Construct the prompt with movie info and user question
+        prompt = f"""
+Movie: {title}
+Plot: {plot}
+
+TRANSCRIPT:
+{truncated_transcript}
+
+Question: {user_question}
+
+Please analyze the provided movie transcript and answer the question based ONLY on information contained in the given title, plot, and transcript. If the question is not related to the movie or data is taken elsewhere, please respond with "Sorry, I don't have enough information to answer your question."
+"""
+
+        # Call the OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that analyzes movie transcripts and provides insightful answers based on the content.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=800,
+        )
+
+        # Extract and return the answer
+        return response.choices[0].message.content
+
+    except Exception as e:
+        print(f"Error with OpenAI API: {e}")
+        return "Sorry, I encountered an error when trying to analyze this transcript."
+
+
+# NOTE: Main function
 def main():
-    print("Welcome to Movie Script Finder")
+    print("Welcome to ScriptScraperAI")
     print("Initializing...")
+
+    # Check if the OPENAI_API_KEY environment variable is set
+    if not os.getenv("OPENAI_API_KEY"):
+        print("WARNING: OpenAI API key not set. AI functionality will not work.")
 
     last_page = pagination()
     titles, links = fetch_all_movies(last_page)
@@ -168,6 +229,43 @@ def main():
                         f"Title: {title}\n\nPlot: {plot}\n\nTranscript:\n{transcript}"
                     )
                 print(f"Transcript saved to {filename}")
+
+            ai_option = input(
+                "\nOPENAI: Do you want to learn more about this movie based on the transcript? (y/n): "
+            ).lower()
+            if ai_option == "y" and os.getenv("OPENAI_API_KEY"):
+                while True:
+                    user_question = input(
+                        "\nWhat would you like to know about this movie? (or type 'back' to return): "
+                    )
+
+                    if user_question.lower() == "back":
+                        break
+
+                    # Get AI response
+                    ai_response = ask_openai(title, plot, transcript, user_question)
+
+                    print(f"\n{'=' * 50}")
+                    print("AI ANALYSIS:")
+                    print(f"{'=' * 50}")
+                    print(f"{ai_response}")
+                    print(f"{'=' * 50}")
+
+                    # Option to save the AI analysis
+                    save_analysis = input(
+                        "Would you like to save this analysis? (y/n): "
+                    ).lower()
+                    if save_analysis == "y":
+                        analysis_filename = f"Analysis_{title.replace(' ', '_').replace(':', '').replace('/', '_')}.txt"
+                        with open(analysis_filename, "a", encoding="utf-8") as file:
+                            file.write(
+                                f"Question: {user_question}\n\nAnalysis:\n{ai_response}\n\n{'=' * 50}\n\n"
+                            )
+                        print(f"Analysis saved to {analysis_filename}")
+            elif ai_option == "y" and not os.getenv("OPENAI_API_KEY"):
+                print(
+                    "OpenAI API key not configured. Please add your API key to a .env file."
+                )
 
         except (ValueError, IndexError) as e:
             print(f"Invalid selection: {e}. Please try again.")
